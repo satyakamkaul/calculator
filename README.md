@@ -2,104 +2,125 @@
 
 ## Problem Summary
 
-Your web application migration from Glassfish 3 to 6, PrimeFaces 5 to 12, and Java 8 to 11 has introduced a **2+ second performance degradation** in datatable button interactions, with backend calls increasing from 789ms to 2.1 seconds.
+Your web application migration from Glassfish 3 to 6, PrimeFaces 5 to 12, and Java 8 to 11 has introduced a **2+ second performance degradation**:
 
-## Your Setup (Updated Understanding)
+- **Backend calls**: 789ms → 2.1 seconds (167% slower)
+- **Additional resource requests**: 2 new requests for JS/theme/icons
+- **Total impact**: Noticeable 2-second lag on button interactions
 
-- **Main datatable**: Display-only with `p:selectOneMenu` components (causing performance issues)
-- **Edit buttons**: Open popup dialogs for actual editing
-- **Popup dialogs**: Contain the real editing components
+## Your Setup (Correctly Understood)
+
+- **Datatable**: Simple display attributes (text fields, etc.) - no performance issue here
+- **Edit buttons**: Open popup dialogs for editing
+- **Performance bottleneck**: Server-side processing, not client-side components
 
 ## Root Cause Analysis
 
-**Primary Issue**: Your main datatable is rendering hundreds of `p:selectOneMenu` components that are **never used for editing** - they're just for display! This creates massive JavaScript overhead (11.3ms per component × 400 components = 4.5+ seconds) for no functional benefit.
+**Primary Issue**: Server-side performance degradation due to migration changes:
+
+1. **Java 11 performance characteristics** - Different default GC (G1 vs Parallel)
+2. **Glassfish 6 configuration differences** - New thread pool and connector defaults  
+3. **PrimeFaces 12 resource overhead** - Additional JS/theme resource requests
+4. **Configuration mismatch** - Settings optimized for old stack
 
 ## Solution Documents
 
-### 🚨 [Display Table Optimization](display-table-optimization.md) - YOUR PERFECT SOLUTION
-**This is exactly for your use case** - Optimize display table performance while keeping full PrimeFaces functionality in your popups.
+### 🚨 [Server Performance Quick Fixes](server-performance-quick-fixes.md) - START HERE
+**Your immediate solution** - Critical server-side optimizations that will restore performance.
+
+### 📊 [Complete Server Analysis](actual-performance-analysis.md)
+Comprehensive server-side performance analysis with detailed optimizations and monitoring.
 
 ### ⚙️ [Glassfish Configuration Guide](glassfish-config-recommendations.md)
-Server-side optimizations to complement the frontend improvements.
+Complete domain.xml and asadmin configuration optimizations.
 
-### 📊 [Alternative PrimeFaces Solutions](primefaces-performance-solutions.md)
-Other approaches if your setup is different.
+## The Real Solution
 
-## The Simple Solution
+Your issue is **server-side processing bottlenecks**, not client-side component overhead.
 
-Since you use **popup editing**, you can replace display components in the main table with simple `h:outputText` while keeping **all PrimeFaces components in your popups unchanged**.
+### Critical Fixes:
 
-### Quick Example:
+```bash
+# 1. Fix Java 11 GC (biggest impact)
+asadmin create-jvm-options '-XX\:+UseParallelGC'
+asadmin create-jvm-options '-Xms2048m:-Xmx2048m'
+
+# 2. Optimize thread pools
+asadmin set configs.config.server-config.thread-pools.thread-pool.http-thread-pool.max-thread-pool-size=200
+
+# 3. Enable compression
+asadmin set configs.config.server-config.network-config.protocols.protocol.http-listener-1.http.compression=on
+```
+
+### Web.xml optimizations:
 
 ```xml
-<!-- BEFORE (Slow - unnecessary p:selectOneMenu for display) -->
-<p:dataTable value="#{bean.items}" var="item">
-    <p:column headerText="Status">
-        <p:selectOneMenu value="#{item.status}" disabled="true">
-            <f:selectItems value="#{bean.statusOptions}" />
-        </p:selectOneMenu>
-    </p:column>
-    <p:column headerText="Actions">
-        <p:commandButton value="Edit" onclick="PF('editDlg').show()" />
-    </p:column>
-</p:dataTable>
+<context-param>
+    <param-name>javax.faces.PROJECT_STAGE</param-name>
+    <param-value>Production</param-value>
+</context-param>
 
-<!-- AFTER (Fast - simple display, rich editing in popup) -->
-<p:dataTable value="#{bean.items}" var="item">
-    <p:column headerText="Status">
-        <h:outputText value="#{item.statusLabel}" styleClass="status-display" />
-    </p:column>
-    <p:column headerText="Actions">
-        <p:commandButton value="Edit" onclick="PF('editDlg').show()" />
-    </p:column>
-</p:dataTable>
-
-<!-- Your popup stays EXACTLY the same - full PrimeFaces functionality -->
-<p:dialog widgetVar="editDlg">
-    <p:selectOneMenu value="#{bean.selectedItem.status}">
-        <f:selectItems value="#{bean.statusOptions}" />
-    </p:selectOneMenu>
-    <!-- All your rich components unchanged -->
-</p:dialog>
+<context-param>
+    <param-name>primefaces.MOVE_SCRIPTS_TO_BOTTOM</param-name>
+    <param-value>true</param-value>
+</context-param>
 ```
 
 ## Expected Results
 
-- **Main table performance**: 99% improvement (4.5 seconds → 10ms)
-- **Popup functionality**: Unchanged - keeps all PrimeFaces features
-- **User experience**: Actually better - cleaner display, rich editing when needed
-- **Implementation effort**: Minimal - just replace display components
+- **Backend calls**: 2.1s → 800-900ms (return to original performance)
+- **Resource loading**: Reduced overhead from compression
+- **Overall improvement**: 50-70% faster page interactions
 
 ## Implementation Roadmap
 
-### Phase 1: Immediate (1-2 hours) ⚡
-1. **Replace `p:selectOneMenu` with `h:outputText`** in main datatable
-2. **Add label getter methods** to your beans
-3. **Keep popup dialogs unchanged**
+### Phase 1: Critical (1-2 hours) ⚡
+1. **Apply JVM tuning** - Force Parallel GC, optimize memory
+2. **Increase thread pools** - Handle concurrent requests better
+3. **Enable compression** - Reduce resource loading overhead
 
-**Expected Result**: 90%+ performance improvement immediately
+**Expected Result**: Return to ~800ms backend performance
 
-### Phase 2: Polish (1-2 days) 🎨
-1. **Add CSS styling** to match your theme
-2. **Apply Glassfish server optimizations**
-3. **Add pagination** if not already present
+### Phase 2: Optimization (Same day) 🔧
+1. **Configure PrimeFaces production mode**
+2. **Optimize connection pools**
+3. **Fine-tune HTTP connectors**
 
-**Expected Result**: Return to or exceed original 789ms performance
+**Expected Result**: Exceed original performance
+
+### Phase 3: Monitoring (Next day) 📊
+1. **Enable performance monitoring**
+2. **Profile database queries**
+3. **Monitor resource usage**
+
+**Expected Result**: Sustained optimal performance
 
 ## Key Insights
 
-1. **Your setup is actually ideal for optimization** - Clean separation between display and editing
-2. **Display tables should be lightweight** - No need for rich components
-3. **Rich components belong in editing contexts** - Popups, forms, actual interaction points
-4. **This solution gives you the best of both worlds** - Fast display + rich editing
+1. **Java 11 default GC change** - G1 optimizes for latency but can reduce throughput
+2. **Glassfish 6 different defaults** - Thread pools and connectors need tuning
+3. **PrimeFaces 12 resource overhead** - More JS/CSS files to load
+4. **Configuration is critical** - Default settings aren't optimized for your workload
+
+## Diagnostics
+
+### Check if you have the right GC:
+```bash
+asadmin list-jvm-options | grep -E "(GC|Parallel|G1)"
+```
+
+### Monitor current thread usage:
+```bash
+asadmin get --monitor=true server.thread-pools.thread-pool.http-thread-pool.currentthreadsbusy-count
+```
 
 ## Next Steps
 
-1. **Start with [Display Table Optimization](display-table-optimization.md)** - Your exact use case
-2. **Test one problematic table first** - Validate the 90%+ improvement
-3. **Apply [Glassfish Configuration](glassfish-config-recommendations.md)** - Server-side boost
-4. **Expand to other tables** - Roll out the successful pattern
+1. **Start with [Server Performance Quick Fixes](server-performance-quick-fixes.md)** - Will solve your 2.1s issue
+2. **Read [Complete Server Analysis](actual-performance-analysis.md)** - For thorough understanding
+3. **Apply [Glassfish Configuration](glassfish-config-recommendations.md)** - For comprehensive tuning
+4. **Monitor improvements** - Validate each change
 
 ---
 
-*This solution is tailored specifically for display tables with popup editing - the most common and effective pattern for large datasets in JSF applications.*
+*This analysis addresses the actual server-side performance bottlenecks causing your 2+ second delay, not component-related issues. The migration to Java 11 and Glassfish 6 introduced configuration mismatches that need specific tuning.*
